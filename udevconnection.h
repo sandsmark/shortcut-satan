@@ -67,7 +67,7 @@ struct UdevConnection {
             const char *isKeyboard = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
 
             if (!isKeyboard || strcmp(isKeyboard, "1") != 0) {
-                fprintf(stderr, "Skipping non-keyboard %s\n", path);
+                //fprintf(stderr, "Skipping non-keyboard %s\n", path);
                 //printProperties(dev);
                 udev_device_unref(dev);
                 continue;
@@ -76,13 +76,13 @@ struct UdevConnection {
             // It's a list entry, but we only need one
             udev_list_entry *devLinkPath = udev_device_get_devlinks_list_entry(dev);
             if (!devLinkPath) {
-                fprintf(stderr, "Skipping device not in /dev: %s\n", path);
-                printProperties(dev);
+                //fprintf(stderr, "Skipping device not in /dev: %s\n", path);
+                //printProperties(dev);
                 udev_device_unref(dev);
                 continue;
             }
             fprintf(stdout, "Found keyboard: %s\n", path);
-            printProperties(dev);
+            //printProperties(dev);
             const std::string id = udev_device_get_devpath(dev);
             keyboardPaths[id] = udev_list_entry_get_name(devLinkPath);
 
