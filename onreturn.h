@@ -7,5 +7,5 @@ struct OnReturn {
     ~OnReturn() { onDestroy(); }
 
     const std::function<void()> onDestroy;
-}
+};
 
