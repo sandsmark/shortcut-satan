@@ -25,12 +25,13 @@ extern "C" {
 
 struct File
 {
-    File (const std::string &filename) {
-        fd = open(filename.c_str(), O_RDONLY | O_NONBLOCK);
+    File (const std::string &filename_) : filename(filename_) {
+        fd = open(filename_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 
         if (fd == -1) {
-            perror(("Failed to open " + filename).c_str());
+            perror(("Failed to open " + filename_).c_str());
         }
+        printf("Opened %s\n", filename.c_str());
     }
 
     ~File() {
@@ -39,7 +40,7 @@ struct File
         }
     }
 
-    File(File&& other) {
+    File(File&& other) : filename(std::move(other.filename)) {
         fd = other.fd;
         other.fd = -1;
     }
@@ -50,6 +51,7 @@ struct File
     bool isOpen() { return fd != -1; }
 
     int fd = -1;
+    const std::string filename;
 };
 
 static bool s_running = false;
@@ -60,18 +62,25 @@ bool s_pressedKeys[KEY_CNT];
 
 static bool handleKey(const int fd)
 {
-    input_event iev;
-    int ret = read(fd, &iev, sizeof(iev));
-    if (ret != sizeof(iev)) {
-        perror("read");
-        return false;
+    while (true) {
+        input_event iev;
+        int ret = read(fd, &iev, sizeof(iev));
+        if (errno == EAGAIN) {
+            puts("Got eagain");
+            return true;
+        }
+        if (ret != sizeof(iev)) {
+            perror("Short read");
+            return false;
+        }
+        if (iev.type != EV_KEY) {
+            if (s_verbose) printf("Wrong event type %d (%d: %d)\n", iev.type, iev.code, iev.value);
+            return true;
+        }
+        s_pressedKeys[iev.code] = iev.value;
+        if (s_verbose) printf("Read %d: %d\n", iev.code, iev.value);
+        if (s_verbose) std::cout << s_pressedKeys[KEY_MUTE] << std::endl;
     }
-    if (iev.type != EV_KEY) {
-        return true;
-    }
-    s_pressedKeys[iev.code] = iev.value;
-    if (s_verbose) printf("Read %d: %d\n", iev.code, iev.value);
-    if (s_verbose) std::cout << s_pressedKeys[KEY_MUTE] << std::endl;
     return true;
 }
 
@@ -97,12 +106,6 @@ std::vector<File> openKeyboards(const std::unordered_map<std::string, std::strin
         int ret = ioctl(file.fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits);
         if (ret < 0) {
             perror(("Failed to get key bits from " + keyboard.second).c_str());
-            continue;
-        }
-
-        // Just some sanity checking
-        if (!(CHECK_BIT(bits, KEY_ESC))) {
-            puts((keyboard.second + " missing escape key").c_str());
             continue;
         }
 
@@ -309,7 +312,7 @@ int main(int argc, char *argv[])
 #endif
 
     std::vector<File> files = openKeyboards(udevConnection.keyboardPaths);
-    puts("Opened");
+    if (s_verbose) puts("Opened");
 
     s_running = true;
 
@@ -317,16 +320,20 @@ int main(int argc, char *argv[])
 
     while (s_running) {
         FD_ZERO(&fdset);
+        int maxFd = 3;
         for (const File &file : files) {
             FD_SET(file.fd, &fdset);
+            maxFd = std::max(maxFd, file.fd);
         }
         FD_SET(udevConnection.udevSocketFd, &fdset);
+        maxFd = std::max(maxFd, udevConnection.udevSocketFd);
 
         timeval timeout;
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
-        const int events = select(files.back().fd + 1, &fdset, 0, 0, &timeout);
+        //const int events = select(files.back().fd + 1, &fdset, 0, 0, &timeout);
+        const int events = select(maxFd + 1, &fdset, 0, 0, &timeout);
         if (events == -1) {
             perror("Failed during select");
             break;
@@ -335,6 +342,7 @@ int main(int argc, char *argv[])
         if (events == 0) { // Just a timeout
             continue;
         }
+        printf("Handling %d events\n", events);
 
         bool updated = false;
         for (const File &file : files) {
@@ -342,6 +350,7 @@ int main(int argc, char *argv[])
                 continue;
             }
             updated = true;
+            printf("%s got updated\n", file.filename.c_str());
 
             if (!handleKey(file.fd)) {
                 // Reset pressed keys in case of an error

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <algorithm>
+#include <filesystem>
 
 extern "C" {
 #include <libudev.h>
@@ -39,6 +40,28 @@ struct UdevConnection {
         init();
     }
 
+    static std::string devicePath(udev_device *dev)
+    {
+        std::string linkPath;
+        //const char *sysName = udev_device_get_sysname(dev);
+        const char *sysName = udev_device_get_property_value(dev, "DEVNAME");
+        if (sysName) {
+            linkPath = sysName;
+        } else {
+            puts("Falling back");
+            udev_list_entry *devLink= udev_device_get_devlinks_list_entry(dev);
+            if (!devLink) {
+                return {};
+            }
+            const char *rawLinkPath = udev_list_entry_get_name(devLink);
+            if (!rawLinkPath) {
+                perror("Failed to get raw link path");
+                return {};
+            }
+        }
+        return linkPath;
+    }
+
     void init()
     {
         udev_enumerate *enumerate = udev_enumerate_new(context);
@@ -65,31 +88,36 @@ struct UdevConnection {
             }
 
             const char *isKeyboard = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
+            const char *isKey = udev_device_get_property_value(dev, "ID_INPUT_KEY");
+            const char *isSwitch = udev_device_get_property_value(dev, "ID_INPUT_SWITCH");
 
-            if (!isKeyboard || strcmp(isKeyboard, "1") != 0) {
-                //fprintf(stderr, "Skipping non-keyboard %s\n", path);
+            if (!(isKeyboard && strcmp(isKeyboard, "1") == 0) && !(isKey && strcmp(isKey, "1") == 0) && !(isSwitch && strcmp(isSwitch, "1") == 0)) {
+                fprintf(stderr, "!!!!!!!! Skipping non-keyboard %s\n", path);
                 //printProperties(dev);
                 udev_device_unref(dev);
+                fprintf(stderr, " -------------\n");
                 continue;
             }
 
             // It's a list entry, but we only need one
-            udev_list_entry *devLinkPath = udev_device_get_devlinks_list_entry(dev);
-            if (!devLinkPath) {
-                //fprintf(stderr, "Skipping device not in /dev: %s\n", path);
+            std::string linkPath = devicePath(dev);
+            if (linkPath.empty() || !std::filesystem::exists(linkPath)) {
+                fprintf(stderr, "Skipping device not in /dev: %s (%s)\n", path, linkPath.c_str());
                 //printProperties(dev);
                 udev_device_unref(dev);
                 continue;
             }
-            fprintf(stdout, "Found keyboard: %s\n", path);
-            //printProperties(dev);
+
+            fprintf(stdout, "Found keyboard: %s: %s\n", path, linkPath.c_str());
+            printProperties(dev);
             const std::string id = udev_device_get_devpath(dev);
-            keyboardPaths[id] = udev_list_entry_get_name(devLinkPath);
+            keyboardPaths[id] = linkPath;
 
             udev_device_unref(dev);
         }
 
         udev_enumerate_unref(enumerate);
+        printf("Got %ld keyboards\n", keyboardPaths.size());
     }
 
     ~UdevConnection()
