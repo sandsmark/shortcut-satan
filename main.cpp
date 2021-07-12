@@ -22,13 +22,6 @@ extern "C" {
 #include <signal.h>
 }
 
-#define BITS_PER_LONG (sizeof(long) * 8)
-#define NBITS(x) ((((x)-1)/BITS_PER_LONG)+1)
-#define OFF(x)  ((x)%BITS_PER_LONG)
-#define BIT(x)  (1UL<<OFF(x))
-#define LONG(x) ((x)/BITS_PER_LONG)
-#define CHECK_BIT(array, bit)	((array[LONG(bit)] >> OFF(bit)) & 1)
-
 struct File
 {
     File (const std::string &filename_, const int flags = O_RDONLY | O_NONBLOCK | O_CLOEXEC) : filename(filename_) {
@@ -80,6 +73,10 @@ static bool handleKey(const int fd)
                 return true;
             }
             perror("Short read");
+            return false;
+        }
+        if (iev.type == EV_SYN && iev.code == SYN_DROPPED) {
+            fprintf(stderr, "Got dropped events!");
             return false;
         }
         if (iev.type != EV_KEY) {
@@ -357,7 +354,6 @@ int main(int argc, char *argv[])
         timeout.tv_sec = 30;
         timeout.tv_usec = 0;
 
-        //const int events = select(files.back().fd + 1, &fdset, 0, 0, &timeout);
         const int events = select(maxFd + 1, &fdset, 0, 0, &timeout);
         if (events == -1) {
             if (s_running) {
