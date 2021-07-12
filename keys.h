@@ -6,7 +6,7 @@ extern "C" {
 
 #include <unordered_map>
 
-static constexpr std::unordered_map<std::string, uint16_t> key_conversion_table =
+static const std::unordered_map<std::string, uint16_t> key_conversion_table =
 {
     {"ESC", KEY_ESC},
     {"1", KEY_1},
