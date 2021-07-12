@@ -1,3 +1,7 @@
+static bool s_running = false;
+static bool s_verbose = false;
+static bool s_veryVerbose = false;
+
 #include "udevconnection.h"
 
 #include "keys.h"
@@ -11,9 +15,11 @@
 extern "C" {
 #include <linux/input.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <wordexp.h>
+#include <signal.h>
 }
 
 #define BITS_PER_LONG (sizeof(long) * 8)
@@ -25,24 +31,32 @@ extern "C" {
 
 struct File
 {
-    File (const std::string &filename_) : filename(filename_) {
-        fd = open(filename_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    File (const std::string &filename_, const int flags = O_RDONLY | O_NONBLOCK | O_CLOEXEC) : filename(filename_) {
+        fd = open(filename_.c_str(), flags);
 
         if (fd == -1) {
             perror(("Failed to open " + filename_).c_str());
         }
-        printf("Opened %s\n", filename.c_str());
+        if (s_verbose) printf("Opened %s\n", filename.c_str());
     }
 
     ~File() {
         if (fd != -1) {
+            // Closing is very slow, for some reason
+            std::cout << "Closing " << fd << std::flush;
             close(fd);
+            std::cout << "\033[2K\r";
         }
     }
 
     File(File&& other) : filename(std::move(other.filename)) {
         fd = other.fd;
         other.fd = -1;
+    }
+    void unlink() {
+        if (unlinkat(fd, filename.c_str(), 0) == -1) {
+            perror(("Failed to unlink " + filename).c_str());
+        }
     }
 
     File(const File &) = delete;
@@ -54,10 +68,6 @@ struct File
     const std::string filename;
 };
 
-static bool s_running = false;
-static bool s_verbose = true;
-static bool s_veryVerbose = false;
-
 bool s_pressedKeys[KEY_CNT];
 
 static bool handleKey(const int fd)
@@ -65,16 +75,16 @@ static bool handleKey(const int fd)
     while (true) {
         input_event iev;
         int ret = read(fd, &iev, sizeof(iev));
-        if (errno == EAGAIN) {
-            puts("Got eagain");
-            return true;
-        }
         if (ret != sizeof(iev)) {
+            if (errno == EAGAIN) {
+                return true;
+            }
             perror("Short read");
             return false;
         }
         if (iev.type != EV_KEY) {
             if (s_verbose) printf("Wrong event type %d (%d: %d)\n", iev.type, iev.code, iev.value);
+            // Why doesn't it work when I try continue instead here? I feel dumb
             return true;
         }
         s_pressedKeys[iev.code] = iev.value;
@@ -263,6 +273,18 @@ static void launch(const std::string &command)
     case 0: {
         if (s_verbose) std::cout << "Child executing " << command << std::endl;
 
+        int maxfd = FD_SETSIZE;
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
+            maxfd = rl.rlim_cur;
+        }
+        for (int fd = 3; fd < maxfd; ++fd) {
+            close(fd);
+        }
+
+        // SIGCHLD will not be reset after fork, unlike all other signals
+        signal(SIGCHLD, SIG_DFL);
+
         const int ret = std::system(command.c_str());
         if (ret != 0 && s_verbose) {
             perror("Launching failed");
@@ -271,7 +293,7 @@ static void launch(const std::string &command)
         break;
     }
     case -1:
-        std::cerr << " ! Error forking: " << strerror(errno) << std::endl;
+        perror(" ! Error forking");
         return;
     default:
         if (s_verbose) std::cout << "Forked, parent PID: " << pid << std::endl;
@@ -279,8 +301,25 @@ static void launch(const std::string &command)
     }
 }
 
+void sigintHandler(int)
+{
+    s_running = false;
+    signal(SIGINT, SIG_DFL);
+}
+
 int main(int argc, char *argv[])
 {
+    File pidfile("/tmp/shortcut-satan.lock", O_WRONLY | O_CREAT | O_CREAT);
+    if (!pidfile.isOpen() || lockf(pidfile.fd, F_TLOCK, 0) == -1) {
+        if (errno == EAGAIN || errno == EACCES) {
+            puts("Already running");
+        } else {
+            perror("Failed to create lock file");
+        }
+        return EALREADY; // lol sue me
+    }
+
+    signal(SIGINT, &sigintHandler);
     (void)argc;
     (void)argv;
     UdevConnection udevConnection;
@@ -296,20 +335,6 @@ int main(int argc, char *argv[])
         puts(("Failed to load " + configPath).c_str());
         return ENOENT;
     }
-    //std::vector<std::string> test = {"left", "ctrl"};
-
-#if 0
-    Shortcut shrt;
-    for (const std::string &key : test) {
-        const int keycode = getKeyCode(key);
-        if (keycode == -1) {
-            puts(("Failed to find " + key).c_str());
-            continue;
-        }
-        shrt.keys.push_back(keycode);
-    }
-    shortcuts.push_back(std::move(shrt));
-#endif
 
     std::vector<File> files = openKeyboards(udevConnection.keyboardPaths);
     if (s_verbose) puts("Opened");
@@ -329,20 +354,24 @@ int main(int argc, char *argv[])
         maxFd = std::max(maxFd, udevConnection.udevSocketFd);
 
         timeval timeout;
-        timeout.tv_sec = 1;
+        timeout.tv_sec = 30;
         timeout.tv_usec = 0;
 
         //const int events = select(files.back().fd + 1, &fdset, 0, 0, &timeout);
         const int events = select(maxFd + 1, &fdset, 0, 0, &timeout);
         if (events == -1) {
-            perror("Failed during select");
+            if (s_running) {
+                perror("Failed during select");
+            }
             break;
         }
 
-        if (events == 0) { // Just a timeout
+        if (events == 0) {
+            // If there was a timeout, assume we might have missed some events and reset state
+            memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
             continue;
         }
-        printf("Handling %d events\n", events);
+        if (s_verbose) printf("Handling %d events\n", events);
 
         bool updated = false;
         for (const File &file : files) {
@@ -350,7 +379,7 @@ int main(int argc, char *argv[])
                 continue;
             }
             updated = true;
-            printf("%s got updated\n", file.filename.c_str());
+            if (s_verbose) printf("%s got updated\n", file.filename.c_str());
 
             if (!handleKey(file.fd)) {
                 // Reset pressed keys in case of an error
@@ -391,6 +420,8 @@ int main(int argc, char *argv[])
             }
         }
     }
+    puts("Goodbye");
+    pidfile.unlink();
 
     return 0;
 }
