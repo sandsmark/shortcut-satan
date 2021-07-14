@@ -7,13 +7,13 @@ EXECUTABLE=shortcut-satan
 all: $(EXECUTABLE)
 
 
-%.o: %.cpp
+%.o: %.cpp Makefile
 	$(CXX) -MMD -MP $(CXXFLAGS) -o $@ -c $<
 
 DEPS=$(OBJECTS:.o=.d)
 -include $(DEPS)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CXX) -o $@ $^ $(LDFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS) $(CXXFLAGS)
 clean:
 	rm -f $(EXECUTABLE) $(OBJECTS)
