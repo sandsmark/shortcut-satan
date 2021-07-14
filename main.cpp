@@ -82,13 +82,12 @@ static bool handleKey(const int fd)
             return false;
         }
         if (iev.type != EV_KEY) {
-            if (s_verbose) printf("Wrong event type %d (%d: %d)\n", iev.type, iev.code, iev.value);
+            if (s_verbose) printf("Wrong event type %d (%d: %d) ", iev.type, iev.code, iev.value);
             // Why doesn't it work when I try continue instead here? I feel dumb
             return true;
         }
         s_pressedKeys[iev.code] = iev.value;
-        if (s_verbose) printf("Read %d: %d\n", iev.code, iev.value);
-        if (s_verbose) std::cout << s_pressedKeys[KEY_MUTE] << std::endl;
+        if (s_verbose) printf("key %d has state %d ", iev.code, iev.value);
     }
     return true;
 }
@@ -338,14 +337,14 @@ int main(int argc, char *argv[])
                 continue;
             }
             updated = true;
-            if (s_verbose) printf("%s got updated\n", file.filename.c_str());
+            if (s_verbose) printf("%s got updated: ", file.filename.c_str());
 
             if (!handleKey(file.fd)) {
-                if (s_verbose) puts("Unable to handle key, resetting");
+                puts("Unable to handle key, resetting state");
                 // Reset pressed keys in case of an error
                 memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
-                break;
             }
+            if (s_verbose) puts("");
         }
 
         if (updated) {
@@ -366,7 +365,7 @@ int main(int argc, char *argv[])
                     continue;
                 }
                 shortcut.active = true;
-                if (s_verbose) printf("Activated %s\n", shortcut.command.c_str());
+                if (s_verbose) printf("Activated '%s'\n", shortcut.command.c_str());
                 launch(shortcut.command);
             }
 
@@ -385,7 +384,7 @@ int main(int argc, char *argv[])
 
         if (FD_ISSET(udevConnection.udevSocketFd, &fdset)) {
             if (udevConnection.update()) {
-                if (s_verbose) puts("Udev updated, resetting pressed keys and reopening keyboard connections");
+                puts("Udev updated, resetting pressed keys and reopening keyboard connections");
                 // Reset pressed keys if the keyboard numbers etc. change
                 memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
                 files = openKeyboards(udevConnection.keyboardPaths);

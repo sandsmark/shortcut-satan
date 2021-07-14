@@ -172,6 +172,7 @@ struct UdevConnection {
         const std::string id = udev_device_get_devpath(dev);
 
         const std::string action = udev_device_get_action(dev);
+        if (s_verbose) printf("udev action: %s for id %s\n", action.c_str(), id.c_str());
         if (action == "remove" || action == "offline") {
             keyboardPaths.erase(id);
             return true;
