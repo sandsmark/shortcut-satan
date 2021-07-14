@@ -60,6 +60,45 @@ struct UdevConnection {
         }
         return linkPath;
     }
+    void addKeyboard(udev_device *dev)
+    {
+        const std::string id = udev_device_get_devpath(dev);
+
+        const char *isKeyboard = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
+        const char *isKey = udev_device_get_property_value(dev, "ID_INPUT_KEY");
+        //const char *isSwitch = udev_device_get_property_value(dev, "ID_INPUT_SWITCH");
+
+        if (!(isKeyboard && strcmp(isKeyboard, "1") == 0) && !(isKey && strcmp(isKey, "1") == 0)) {// && !(isSwitch && strcmp(isSwitch, "1") == 0)) {
+            if (s_verbose) fprintf(stderr, "!!!!!!!! Skipping non-keyboard %s\n", id.c_str());
+            if (s_veryVerbose) printProperties(dev);
+            if (s_verbose) fprintf(stderr, " -------------\n");
+            return;
+        }
+
+        // It's a list entry, but we only need one
+        std::string linkPath = devicePath(dev);
+        if (linkPath.empty() || !std::filesystem::exists(linkPath)) {
+            if (s_verbose) fprintf(stderr, "Skipping device not in /dev: %s (%s)\n", id.c_str(), linkPath.c_str());
+            if (s_veryVerbose) printProperties(dev);
+            return;
+        }
+
+        // Not initialized yet
+        if (!udev_device_get_is_initialized(dev)) {
+            if (s_verbose) printf("%s not initialized yet\n", linkPath.c_str());
+            return;
+        }
+
+
+        if (keyboardPaths.count(id) != 0) {
+            if (s_verbose) printf("%s already added\n", linkPath.c_str());
+            return;
+        }
+
+        if (s_verbose) fprintf(stdout, "Found keyboard: %s: %s\n", id.c_str(), linkPath.c_str());
+        if (s_veryVerbose) printProperties(dev);
+        keyboardPaths[id] = linkPath;
+    }
 
     void init()
     {
@@ -85,32 +124,7 @@ struct UdevConnection {
                 fprintf(stderr, "failed getting %s\n", path);
                 continue;
             }
-
-            const char *isKeyboard = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
-            const char *isKey = udev_device_get_property_value(dev, "ID_INPUT_KEY");
-            //const char *isSwitch = udev_device_get_property_value(dev, "ID_INPUT_SWITCH");
-
-            if (!(isKeyboard && strcmp(isKeyboard, "1") == 0) && !(isKey && strcmp(isKey, "1") == 0)) {// && !(isSwitch && strcmp(isSwitch, "1") == 0)) {
-                if (s_verbose) fprintf(stderr, "!!!!!!!! Skipping non-keyboard %s\n", path);
-                if (s_verbose) printProperties(dev);
-                udev_device_unref(dev);
-                if (s_verbose) fprintf(stderr, " -------------\n");
-                continue;
-            }
-
-            // It's a list entry, but we only need one
-            std::string linkPath = devicePath(dev);
-            if (linkPath.empty() || !std::filesystem::exists(linkPath)) {
-                if (s_verbose) fprintf(stderr, "Skipping device not in /dev: %s (%s)\n", path, linkPath.c_str());
-                //printProperties(dev);
-                udev_device_unref(dev);
-                continue;
-            }
-
-            if (s_verbose) fprintf(stdout, "Found keyboard: %s: %s\n", path, linkPath.c_str());
-            if (s_verbose) printProperties(dev);
-            const std::string id = udev_device_get_devpath(dev);
-            keyboardPaths[id] = linkPath;
+            addKeyboard(dev);
 
             udev_device_unref(dev);
         }
@@ -132,7 +146,6 @@ struct UdevConnection {
 
     void printProperties(udev_device *dev)
     {
-        //fprintf(stderr, "action: %s\n", udev_device_get_action(dev));
         fprintf(stderr, "sysname: %s\n", udev_device_get_sysname(dev));
         udev_list_entry *entry = udev_device_get_properties_list_entry(dev);
 
@@ -163,27 +176,7 @@ struct UdevConnection {
             keyboardPaths.erase(id);
             return true;
         }
-
-        // Not initialized yet
-        if (!udev_device_get_is_initialized(dev)) {
-            return false;
-        }
-
-        if (keyboardPaths.count(id) != 0) {
-            return false;
-        }
-        udev_list_entry *devLinkPath = udev_device_get_devlinks_list_entry(dev);
-        if (!devLinkPath) {
-            if (s_verbose) fprintf(stderr, "Skipping device not in /dev\n");
-            printProperties(dev);
-            return false;
-        }
-        std::string linkPath = devicePath(dev);
-        if (linkPath.empty()) {
-            perror("Failed to find device path");
-            return false;
-        }
-        keyboardPaths[id] = linkPath;
+        addKeyboard(dev);
 
         return true;
     }

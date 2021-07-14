@@ -299,14 +299,29 @@ static void launch(const std::string &command)
     }
 }
 
-void sigintHandler(int)
+void sigintHandler(int sig)
 {
     s_running = false;
-    signal(SIGINT, SIG_DFL);
+    signal(sig, SIG_DFL);
 }
 
 int main(int argc, char *argv[])
 {
+    for (int i=1; i<argc; i++) {
+        const std::string arg(argv[i]);
+
+        if (arg == "-v" || arg == "--verbose") {
+            s_verbose = true;
+            continue;
+        }
+        if (arg == "-vv" || arg == "--very-verbose") {
+            s_verbose = true;
+            continue;
+        }
+        printf("Usage: %s [--verbose|-v|-vv|--very-verbose]\n", argv[0]);
+        exit(0);
+    }
+
     File pidfile("/tmp/shortcut-satan.lock", O_WRONLY | O_CREAT | O_CREAT);
     if (!pidfile.isOpen() || lockf(pidfile.fd, F_TLOCK, 0) == -1) {
         if (errno == EAGAIN || errno == EACCES) {
@@ -335,12 +350,15 @@ int main(int argc, char *argv[])
     }
 
     std::vector<File> files = openKeyboards(udevConnection.keyboardPaths);
-    if (s_verbose) puts("Opened");
+    if (files.empty()) {
+        fprintf(stderr, "Failed to open any keyboards\n");
+        return ENODEV;
+    }
 
     s_running = true;
+    puts("Running");
 
     fd_set fdset;
-
     while (s_running) {
         FD_ZERO(&fdset);
         int maxFd = 3;
@@ -417,7 +435,7 @@ int main(int argc, char *argv[])
             }
         }
     }
-    puts("Goodbye");
+    puts("\033[2K\rGoodbye");
     pidfile.unlink();
 
     return 0;
