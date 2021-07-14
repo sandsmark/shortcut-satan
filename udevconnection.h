@@ -116,7 +116,7 @@ struct UdevConnection {
         }
 
         udev_enumerate_unref(enumerate);
-        printf("Got %ld keyboards\n", keyboardPaths.size());
+        if (s_verbose) printf("Got %ld keyboards\n", keyboardPaths.size());
     }
 
     ~UdevConnection()

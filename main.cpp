@@ -35,7 +35,7 @@ struct File
 
     ~File() {
         if (fd != -1) {
-            // Closing is very slow, for some reason
+            // Closing is very slow, for some reason, so print progress
             std::cout << "Closing " << fd << std::flush;
             close(fd);
             std::cout << "\033[2K\r";
@@ -102,7 +102,7 @@ std::vector<File> openKeyboards(const std::unordered_map<std::string, std::strin
 {
     std::vector<File> files;
     for (const std::pair<const std::string, std::string> &keyboard : keyboards) {
-        std::cout << keyboard.first << ": " << keyboard.second << std::endl;
+        if (s_verbose) std::cout << keyboard.first << ": " << keyboard.second << std::endl;
 
         File file(keyboard.second);
         if (!file.isOpen()) {
@@ -259,7 +259,7 @@ static bool s_dryRun = false;
 
 static void launch(const std::string &command)
 {
-    std::cout << " -> Launching '" << command << "'" << std::endl;
+    if (s_verbose) printf(" -> Launching '%s'\n", command.c_str());
 
     if (s_dryRun) {
         return;
@@ -268,7 +268,8 @@ static void launch(const std::string &command)
     const int pid = fork();
     switch(pid) {
     case 0: {
-        if (s_verbose) std::cout << "Child executing " << command << std::endl;
+
+        if (s_verbose) printf("Child executing %s\n", command.c_str());
 
         int maxfd = FD_SETSIZE;
         struct rlimit rl;
@@ -293,7 +294,7 @@ static void launch(const std::string &command)
         perror(" ! Error forking");
         return;
     default:
-        if (s_verbose) std::cout << "Forked, parent PID: " << pid << std::endl;
+        if (s_verbose) printf("Forked, parent PID: %d\n", pid);
         break;
     }
 }
