@@ -299,10 +299,10 @@ static void launch(const std::string &command)
     }
 }
 
-void sigintHandler(int sig)
+void signalHandler(int sig)
 {
-    s_running = false;
     signal(sig, SIG_DFL);
+    s_running = false;
 }
 
 int main(int argc, char *argv[])
@@ -332,9 +332,11 @@ int main(int argc, char *argv[])
         return EALREADY; // lol sue me
     }
 
-    signal(SIGINT, &sigintHandler);
-    (void)argc;
-    (void)argv;
+    signal(SIGINT, &signalHandler);
+    signal(SIGTERM, &signalHandler);
+    signal(SIGQUIT, &signalHandler);
+    signal(SIGHUP, [](int){}); // Ignore
+
     UdevConnection udevConnection;
 
     const std::string configPath = getConfigPath();
