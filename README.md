@@ -12,6 +12,9 @@ You define shortcuts and what they do in ~/.config/shortcut-satan.conf. The
 format is the same as hkd, just without the weird -'s at the beginning of each
 line.
 
+If you run it with `-p` it will print the keys you press. Useful for creating
+your config.
+
 
 Example config
 --------------

@@ -1,11 +1,10 @@
-LDFLAGS+=-ludev
-CXXFLAGS+=-Wall -Wextra -pedantic
-CCFILES=$(wildcard *.cpp)
-CXXFLAGS += -g -fPIC -std=c++2a -O1 -Wall -Wextra -pedantic
-OBJECTS=$(patsubst %.cpp, %.o, $(CCFILES))
 EXECUTABLE=shortcut-satan
-all: $(EXECUTABLE)
+CXXFILES=$(wildcard *.cpp)
+OBJECTS=$(patsubst %.cpp, %.o, $(CXXFILES))
+LDFLAGS+=-ludev
+CXXFLAGS+=-Wall -Wextra -pedantic -std=c++2a -fPIC -g
 
+all: $(EXECUTABLE)
 
 %.o: %.cpp Makefile
 	$(CXX) -MMD -MP $(CXXFLAGS) -o $@ -c $<
@@ -16,4 +15,4 @@ DEPS=$(OBJECTS:.o=.d)
 $(EXECUTABLE): $(OBJECTS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(CXXFLAGS)
 clean:
-	rm -f $(EXECUTABLE) $(OBJECTS)
+	rm -f $(EXECUTABLE) $(OBJECTS) $(DEPS)
