@@ -162,6 +162,9 @@ static Shortcut parseShortcut(const std::string &line)
     if (line.empty()) {
         return {};
     }
+    if (line[0] == '#') {
+        return {};
+    }
     std::string name;
     std::string value;
 
@@ -213,11 +216,11 @@ std::vector<Shortcut> parseConfig(const std::string &path)
     std::vector<Shortcut> ret;
     std::string line;
     while (std::getline(file, line)) {
-        Shortcut shortcut = parseShortcut(line);
+        Shortcut shortcut = parseShortcut(trimString(line));
         if (!shortcut.isValid()) {
             continue;
         }
-        ret.push_back(parseShortcut(line));
+        ret.push_back(shortcut);
     }
 
     return ret;

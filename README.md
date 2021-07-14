@@ -22,4 +22,7 @@ VOLUMEUP: pamixer -i 10
 VOLUMEDOWN: pamixer -d 10
 BRIGHTNESSUP: light -A 33
 BRIGHTNESSDOWN: light -U 33
+
+# Lock
+WIN L: xset s activate
 ```
