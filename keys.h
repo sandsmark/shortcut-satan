@@ -4,6 +4,8 @@ extern "C" {
 #include <linux/input.h>
 }
 
+#include "utils.h"
+
 #include <unordered_map>
 
 static const std::unordered_map<std::string, uint16_t> key_conversion_table =
@@ -133,7 +135,11 @@ static const std::unordered_map<std::string, uint16_t> key_conversion_table =
     {"HANJA", KEY_HANJA},
     {"YEN", KEY_YEN},
     {"LEFTMETA", KEY_LEFTMETA},
+    {"WIN", KEY_LEFTMETA},
+    {"WINDOWS", KEY_LEFTMETA},
+    {"LEFTWIN", KEY_LEFTMETA},
     {"RIGHTMETA", KEY_LEFTMETA},
+    {"RIGHTWIN", KEY_LEFTMETA},
     {"COMPOSE", KEY_COMPOSE},
     {"STOP", KEY_STOP},
     {"AGAIN", KEY_AGAIN},
@@ -504,3 +510,20 @@ static const std::unordered_map<std::string, uint16_t> key_conversion_table =
 };
 
 
+static int getKeyCode(std::string input)
+{
+    std::transform(input.begin(), input.end(), input.begin(),
+            [](char c){ return std::toupper(c); });
+
+    std::unordered_map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(input);
+    if (it != key_conversion_table.end()) {
+        return it->second;
+    }
+
+    return -1;
+}
+
+static std::string getKeyName(const uint16_t keycode)
+{
+    return lookupString(keycode, reverseMapping(key_conversion_table));
+}

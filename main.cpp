@@ -1,9 +1,10 @@
 static bool s_running = false;
 static bool s_verbose = false;
 static bool s_veryVerbose = false;
+static bool s_dryRun = false;
 
 #include "udevconnection.h"
-
+#include "utils.h"
 #include "keys.h"
 
 #include <iostream>
@@ -20,6 +21,7 @@ extern "C" {
 #include <unistd.h>
 #include <wordexp.h>
 #include <signal.h>
+#include <termios.h>
 }
 
 struct File
@@ -61,7 +63,7 @@ struct File
     const std::string filename;
 };
 
-bool s_pressedKeys[KEY_CNT];
+static bool s_pressedKeys[KEY_CNT];
 
 static bool handleKey(const int fd)
 {
@@ -121,33 +123,6 @@ std::vector<File> openKeyboards(const std::unordered_map<std::string, std::strin
     return files;
 }
 
-static int getKeyCode(std::string input)
-{
-    std::transform(input.begin(), input.end(), input.begin(),
-            [](char c){ return std::toupper(c); });
-
-    std::unordered_map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(input);
-    if (it != key_conversion_table.end()) {
-        return it->second;
-    }
-
-    return -1;
-}
-
-static std::string resolvePath(const std::string &path)
-{
-    if (path.empty()) {
-        return {};
-    }
-
-    wordexp_t expanded;
-    wordexp(path.c_str(), &expanded, 0);
-    std::string resolved(expanded.we_wordv[0]);
-    wordfree(&expanded);
-
-    return resolved;
-}
-
 static std::string getConfigPath()
 {
     std::string path;
@@ -180,13 +155,6 @@ static std::string getConfigPath()
     }
     path += "/shortcut-satan.conf";
     return resolvePath(path);
-}
-
-inline std::string trimString(std::string string)
-{
-    string.erase(string.begin(), std::find_if(string.begin(), string.end(), [](int c) { return !std::isspace(c); }  ));
-    string.erase(std::find_if(string.rbegin(), string.rend(), [](int c) { return !std::isspace(c); }).base(), string.end());
-    return string;
 }
 
 static Shortcut parseShortcut(const std::string &line)
@@ -255,50 +223,6 @@ std::vector<Shortcut> parseConfig(const std::string &path)
     return ret;
 }
 
-static bool s_dryRun = false;
-
-static void launch(const std::string &command)
-{
-    if (s_verbose) printf(" -> Launching '%s'\n", command.c_str());
-
-    if (s_dryRun) {
-        return;
-    }
-
-    const int pid = fork();
-    switch(pid) {
-    case 0: {
-
-        if (s_verbose) printf("Child executing %s\n", command.c_str());
-
-        int maxfd = FD_SETSIZE;
-        struct rlimit rl;
-        if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
-            maxfd = rl.rlim_cur;
-        }
-        for (int fd = 3; fd < maxfd; ++fd) {
-            close(fd);
-        }
-
-        // SIGCHLD will not be reset after fork, unlike all other signals
-        signal(SIGCHLD, SIG_DFL);
-
-        const int ret = std::system(command.c_str());
-        if (ret != 0 && s_verbose) {
-            perror("Launching failed");
-        }
-        exit(0);
-        break;
-    }
-    case -1:
-        perror(" ! Error forking");
-        return;
-    default:
-        if (s_verbose) printf("Forked, parent PID: %d\n", pid);
-        break;
-    }
-}
-
 void signalHandler(int sig)
 {
     signal(sig, SIG_DFL);
@@ -307,9 +231,14 @@ void signalHandler(int sig)
 
 int main(int argc, char *argv[])
 {
+    bool printKeys = false;
     for (int i=1; i<argc; i++) {
         const std::string arg(argv[i]);
 
+        if (arg == "-p" || arg == "--printkeys") {
+            printKeys = true;
+            continue;
+        }
         if (arg == "-v" || arg == "--verbose") {
             s_verbose = true;
             continue;
@@ -318,7 +247,7 @@ int main(int argc, char *argv[])
             s_verbose = true;
             continue;
         }
-        printf("Usage: %s [--verbose|-v|-vv|--very-verbose]\n", argv[0]);
+        printf("Usage: %s [--verbose|-v|-vv|--very-verbose|-p|--printkeys]\n", argv[0]);
         exit(0);
     }
 
@@ -331,6 +260,16 @@ int main(int argc, char *argv[])
         }
         return EALREADY; // lol sue me
     }
+
+    termios origTermios;
+    tcgetattr(STDIN_FILENO, &origTermios);
+
+    if (printKeys) {
+        termios newTermios = origTermios;
+        newTermios.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &newTermios);
+    }
+
 
     signal(SIGINT, &signalHandler);
     signal(SIGTERM, &signalHandler);
@@ -399,6 +338,7 @@ int main(int argc, char *argv[])
             if (s_verbose) printf("%s got updated\n", file.filename.c_str());
 
             if (!handleKey(file.fd)) {
+                if (s_verbose) puts("Unable to handle key, resetting");
                 // Reset pressed keys in case of an error
                 memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
                 break;
@@ -426,19 +366,35 @@ int main(int argc, char *argv[])
                 if (s_verbose) printf("Activated %s\n", shortcut.command.c_str());
                 launch(shortcut.command);
             }
+
+            if (printKeys) {
+                printf("\033[2K\r");
+                for (int i=0; i<KEY_CNT; i++) {
+                    if (s_pressedKeys[i]) {
+                        printf("'%s' ", getKeyName(i).c_str());
+                    }
+                }
+                fflush(stdout);
+
+            }
         }
 
 
         if (FD_ISSET(udevConnection.udevSocketFd, &fdset)) {
             if (udevConnection.update()) {
+                if (s_verbose) puts("Udev updated, resetting pressed keys and reopening keyboard connections");
                 // Reset pressed keys if the keyboard numbers etc. change
                 memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
                 files = openKeyboards(udevConnection.keyboardPaths);
             }
         }
     }
-    puts("\033[2K\rGoodbye");
+    puts("\nGoodbye");
     pidfile.unlink();
+
+    if (printKeys) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &origTermios);
+    }
 
     return 0;
 }
