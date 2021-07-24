@@ -1,6 +1,9 @@
 Shortcut Satan™
 ===============
 
+![logo](/logo.jpg)
+
+
 Like [Hotkey Daemon](https://github.com/gunboy001/hkd/), but better because it is written in C++:
 
 ![c++](/c++.jpg)
