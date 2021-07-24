@@ -509,13 +509,31 @@ static const std::unordered_map<std::string, uint16_t> key_conversion_table =
     {"MIC_MUTE", KEY_F20}
 };
 
-
-static int getKeyCode(std::string input)
+template<typename T, typename V>
+static std::unordered_map<T, V> reverseMapping(const std::unordered_map<V, T> &mapping)
 {
-    std::transform(input.begin(), input.end(), input.begin(),
-            [](char c){ return std::toupper(c); });
+    std::unordered_map<T, V> ret;
+    for (const std::pair<const V, T> &entry : mapping) {
+        ret[entry.second] = entry.first;
+    }
 
-    std::unordered_map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(input);
+    return ret;
+}
+
+// Don't need to account for invalid enums
+template<typename T>
+static std::string lookupString(const T val, const std::unordered_map<T, std::string> &map)
+{
+    typename std::unordered_map<T, std::string>::const_iterator it = map.find(val);
+    if (it == map.end()) {
+        return "[UNKNOWN: " + std::to_string(val) + "]";
+    }
+    return it->second;
+}
+
+static int getKeyCode(const std::string &input)
+{
+    std::unordered_map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(std_sux::uppercase(input));
     if (it != key_conversion_table.end()) {
         return it->second;
     }

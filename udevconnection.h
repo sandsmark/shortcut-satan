@@ -13,6 +13,7 @@ extern "C" {
 }
 
 #include "onreturn.h"
+#include "utils.h"
 
 struct UdevConnection {
     UdevConnection()
@@ -42,9 +43,8 @@ struct UdevConnection {
     static std::string devicePath(udev_device *dev)
     {
         std::string linkPath;
-        //const char *sysName = udev_device_get_sysname(dev);
-        const char *sysName = udev_device_get_property_value(dev, "DEVNAME");
-        if (sysName) {
+        const std::string sysName = std_sux::string(udev_device_get_property_value(dev, "DEVNAME"));
+        if (!sysName.empty()) {
             linkPath = sysName;
         } else {
             if (s_verbose) puts("Falling back");
@@ -52,11 +52,7 @@ struct UdevConnection {
             if (!devLink) {
                 return {};
             }
-            const char *rawLinkPath = udev_list_entry_get_name(devLink);
-            if (!rawLinkPath) {
-                perror("Failed to get raw link path");
-                return {};
-            }
+            linkPath = std_sux::string(udev_list_entry_get_name(devLink));
         }
         return linkPath;
     }
@@ -64,11 +60,10 @@ struct UdevConnection {
     {
         const std::string id = udev_device_get_devpath(dev);
 
-        const char *isKeyboard = udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD");
-        const char *isKey = udev_device_get_property_value(dev, "ID_INPUT_KEY");
-        //const char *isSwitch = udev_device_get_property_value(dev, "ID_INPUT_SWITCH");
+        const std::string isKeyboard = std_sux::string(udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD"));
+        const std::string isKey = std_sux::string(udev_device_get_property_value(dev, "ID_INPUT_KEY"));
 
-        if (!(isKeyboard && strcmp(isKeyboard, "1") == 0) && !(isKey && strcmp(isKey, "1") == 0)) {// && !(isSwitch && strcmp(isSwitch, "1") == 0)) {
+        if (isKeyboard != "1" && isKey != "1") {
             if (s_verbose) fprintf(stderr, "!!!!!!!! Skipping non-keyboard %s\n", id.c_str());
             if (s_veryVerbose) printProperties(dev);
             if (s_verbose) fprintf(stderr, " -------------\n");

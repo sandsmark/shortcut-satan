@@ -10,6 +10,28 @@ extern "C" {
 #include <signal.h>
 }
 
+namespace std_sux
+{
+    // I blame boost, but for some reason the std::string constructor doesn't like null pointers.
+    // Because a convenient API, like QString, would be too much to ask for.
+    std::string string(const char *str) { return std::string(str ? str : ""); }
+
+    // The boost style APIs in std really hate convenience
+    inline std::string trim(std::string string)
+    {
+        string.erase(string.begin(), std::find_if(string.begin(), string.end(), [](int c) { return !std::isspace(c); }  ));
+        string.erase(std::find_if(string.rbegin(), string.rend(), [](int c) { return !std::isspace(c); }).base(), string.end());
+        return string;
+    }
+
+    inline std::string uppercase(std::string input) {
+        std::transform(input.begin(), input.end(), input.begin(),
+                [](char c){ return std::toupper(c); });
+        return input;
+    }
+
+}// namespace std_sux
+
 static std::string resolvePath(const std::string &path)
 {
     if (path.empty()) {
@@ -25,12 +47,6 @@ static std::string resolvePath(const std::string &path)
 }
 
 
-inline std::string trimString(std::string string)
-{
-    string.erase(string.begin(), std::find_if(string.begin(), string.end(), [](int c) { return !std::isspace(c); }  ));
-    string.erase(std::find_if(string.rbegin(), string.rend(), [](int c) { return !std::isspace(c); }).base(), string.end());
-    return string;
-}
 static void launch(const std::string &command)
 {
     if (s_verbose) printf(" -> Launching '%s'\n", command.c_str());
@@ -76,26 +92,4 @@ static void launch(const std::string &command)
         if (s_verbose) printf("Forked, parent PID: %d\n", pid);
         break;
     }
-}
-
-template<typename T, typename V>
-static std::unordered_map<T, V> reverseMapping(const std::unordered_map<V, T> &mapping)
-{
-    std::unordered_map<T, V> ret;
-    for (const std::pair<const V, T> &entry : mapping) {
-        ret[entry.second] = entry.first;
-    }
-
-    return ret;
-}
-
-// Don't need to account for invalid enums
-template<typename T>
-static std::string lookupString(const T val, const std::unordered_map<T, std::string> &map)
-{
-    typename std::unordered_map<T, std::string>::const_iterator it = map.find(val);
-    if (it == map.end()) {
-        return "[INVALID]";
-    }
-    return it->second;
 }

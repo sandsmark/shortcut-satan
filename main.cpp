@@ -174,13 +174,13 @@ static Shortcut parseShortcut(const std::string &line)
     }
 
     Shortcut shortcut;
-    shortcut.command = trimString(line.substr(splitPos + 1));
+    shortcut.command = std_sux::trim(line.substr(splitPos + 1));
     if (shortcut.command.empty()) {
         puts(("Missing command: " + line).c_str());
         return {};
     }
 
-    const std::string keys = trimString(line.substr(0, splitPos));
+    const std::string keys = std_sux::trim(line.substr(0, splitPos));
     if (keys.empty()) {
         puts(("Missing keys: " + line).c_str());
         return {};
@@ -189,7 +189,7 @@ static Shortcut parseShortcut(const std::string &line)
     std::istringstream stream(keys);
     std::string keyString;
     while (std::getline(stream, keyString, ' ')) {
-        const int keyCode = getKeyCode(trimString(keyString));
+        const int keyCode = getKeyCode(std_sux::trim(keyString));
         if (keyCode == -1) {
             puts(("Invalid key " + keyString).c_str());
             return {};
@@ -215,7 +215,7 @@ std::vector<Shortcut> parseConfig(const std::string &path)
     std::vector<Shortcut> ret;
     std::string line;
     while (std::getline(file, line)) {
-        Shortcut shortcut = parseShortcut(trimString(line));
+        Shortcut shortcut = parseShortcut(std_sux::trim(line));
         if (!shortcut.isValid()) {
             continue;
         }
