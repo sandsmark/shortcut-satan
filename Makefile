@@ -16,3 +16,6 @@ $(EXECUTABLE): $(OBJECTS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(CXXFLAGS)
 clean:
 	rm -f $(EXECUTABLE) $(OBJECTS) $(DEPS)
+
+install: $(EXECUTABLE)
+	install -D -m755 $(EXECUTABLE) $(DESTDIR)/usr/bin/$(EXECUTABLE)
