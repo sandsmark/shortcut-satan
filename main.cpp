@@ -277,6 +277,7 @@ int main(int argc, char *argv[])
     signal(SIGTERM, &signalHandler);
     signal(SIGQUIT, &signalHandler);
     signal(SIGHUP, [](int){}); // Ignore
+    signal(SIGCHLD, SIG_IGN);
 
     UdevConnection udevConnection;
 
