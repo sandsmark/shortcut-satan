@@ -56,7 +56,7 @@ struct UdevConnection {
         }
         return linkPath;
     }
-    void addKeyboard(udev_device *dev)
+    std::string addKeyboard(udev_device *dev)
     {
         const std::string id = udev_device_get_devpath(dev);
 
@@ -67,7 +67,7 @@ struct UdevConnection {
             if (s_verbose) fprintf(stderr, "!!!!!!!! Skipping non-keyboard %s\n", id.c_str());
             if (s_veryVerbose) printProperties(dev);
             if (s_verbose) fprintf(stderr, " -------------\n");
-            return;
+            return "";
         }
 
         // It's a list entry, but we only need one
@@ -75,24 +75,25 @@ struct UdevConnection {
         if (linkPath.empty() || !std::filesystem::exists(linkPath)) {
             if (s_verbose) fprintf(stderr, "Skipping device not in /dev: %s (%s)\n", id.c_str(), linkPath.c_str());
             if (s_veryVerbose) printProperties(dev);
-            return;
+            return "";
         }
 
         // Not initialized yet
         if (!udev_device_get_is_initialized(dev)) {
             if (s_verbose) printf("%s not initialized yet\n", linkPath.c_str());
-            return;
+            return "";
         }
 
 
         if (keyboardPaths.count(id) != 0) {
             if (s_verbose) printf("%s already added\n", linkPath.c_str());
-            return;
+            return "";
         }
 
         if (s_verbose) fprintf(stdout, "Found keyboard: %s: %s\n", id.c_str(), linkPath.c_str());
         if (s_veryVerbose) printProperties(dev);
         keyboardPaths[id] = linkPath;
+        return linkPath;
     }
 
     void init()
@@ -152,11 +153,17 @@ struct UdevConnection {
         }
     }
 
-    bool update()
+    enum UpdateResult {
+        NoUpdate,
+        KeyboardAdded,
+        KeyboardRemoved
+    };
+
+    UpdateResult update(std::string *keyboardPath)
     {
         if (!udevAvailable) {
             fprintf(stderr, "udev unavailable\n");
-            return false;
+            return NoUpdate;
         }
 
         udev_device *dev = udev_monitor_receive_device(udevMonitor);
@@ -169,12 +176,19 @@ struct UdevConnection {
         const std::string action = udev_device_get_action(dev);
         if (s_verbose) printf("udev action: %s for id %s\n", action.c_str(), id.c_str());
         if (action == "remove" || action == "offline") {
+            if (!keyboardPaths.contains(id)) {
+                return NoUpdate;
+            }
+            *keyboardPath = keyboardPaths[id];
             keyboardPaths.erase(id);
-            return true;
+            return KeyboardRemoved;
         }
-        addKeyboard(dev);
-
-        return true;
+        std::string path = addKeyboard(dev);
+        if (!path.empty()) {
+            *keyboardPath = path;
+            return KeyboardAdded;
+        }
+        return NoUpdate;
     }
 
     udev *context = nullptr;

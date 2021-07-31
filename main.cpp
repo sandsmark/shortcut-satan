@@ -26,13 +26,26 @@ extern "C" {
 
 struct File
 {
-    File (const std::string &filename_, const int flags = O_RDONLY | O_NONBLOCK | O_CLOEXEC) : filename(filename_) {
-        fd = open(filename_.c_str(), flags);
+    File (const std::string &filename, bool keyboard, const int flags = O_RDONLY | O_NONBLOCK | O_CLOEXEC) : m_filename(filename) {
+        fd = open(filename.c_str(), flags);
 
         if (fd == -1) {
-            perror(("Failed to open " + filename_).c_str());
+            perror(("Failed to open " + filename).c_str());
+            return;
         }
-        if (s_verbose) printf("Opened %s\n", filename.c_str());
+
+        if (keyboard) {
+            long bits[KEY_CNT] = { 0 };
+            int ret = ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits);
+            if (ret < 0) {
+                perror(("Failed to get key bits from " + filename).c_str());
+                close(fd);
+                fd = -1;
+                return;
+            }
+        }
+
+        if (s_verbose) printf("Opened %s\n", m_filename.c_str());
     }
 
     ~File() {
@@ -40,17 +53,29 @@ struct File
             // Closing is very slow, for some reason, so print progress
             std::cout << "Closing " << fd << std::flush;
             close(fd);
-            std::cout << "\033[2K\r";
+            if (s_verbose) {
+                puts("");
+            } else {
+                std::cout << "\033[2K\r";
+            }
         }
     }
 
-    File(File&& other) : filename(std::move(other.filename)) {
+    File(File&& other) : m_filename(std::move(other.m_filename)) {
         fd = other.fd;
         other.fd = -1;
     }
+
+    File &operator=(File &&other) {
+        m_filename = std::move(other.m_filename);
+        fd = other.fd;
+        other.fd = -1;
+        return *this;
+    }
+
     void unlink() {
-        if (unlinkat(fd, filename.c_str(), 0) == -1) {
-            perror(("Failed to unlink " + filename).c_str());
+        if (unlinkat(fd, m_filename.c_str(), 0) == -1) {
+            perror(("Failed to unlink " + m_filename).c_str());
         }
     }
 
@@ -60,7 +85,11 @@ struct File
     bool isOpen() { return fd != -1; }
 
     int fd = -1;
-    const std::string filename;
+
+    const std::string &filename() const { return m_filename; }
+
+private:
+    std::string m_filename;
 };
 
 static bool s_pressedKeys[KEY_CNT];
@@ -74,7 +103,7 @@ static bool handleKey(const int fd)
             if (errno == EAGAIN) {
                 return true;
             }
-            perror("Short read");
+            if (errno != ENODEV || s_verbose) perror("Short read");
             return false;
         }
         if (iev.type == EV_SYN && iev.code == SYN_DROPPED) {
@@ -105,17 +134,11 @@ std::vector<File> openKeyboards(const std::unordered_map<std::string, std::strin
     for (const std::pair<const std::string, std::string> &keyboard : keyboards) {
         if (s_verbose) std::cout << keyboard.first << ": " << keyboard.second << std::endl;
 
-        File file(keyboard.second);
+        File file(keyboard.second, true);
         if (!file.isOpen()) {
             continue;
         }
 
-        long bits[KEY_CNT] = { 0 };
-        int ret = ioctl(file.fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits);
-        if (ret < 0) {
-            perror(("Failed to get key bits from " + keyboard.second).c_str());
-            continue;
-        }
 
         files.push_back(std::move(file));
     }
@@ -253,7 +276,7 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
-    File pidfile("/tmp/shortcut-satan.lock", O_WRONLY | O_CREAT | O_CREAT);
+    File pidfile("/tmp/shortcut-satan.lock", false, O_WRONLY | O_CREAT | O_CREAT);
     if (!pidfile.isOpen() || lockf(pidfile.fd, F_TLOCK, 0) == -1) {
         if (errno == EAGAIN || errno == EACCES) {
             puts("Already running");
@@ -333,19 +356,32 @@ int main(int argc, char *argv[])
         if (s_verbose) printf("Handling %d events\n", events);
 
         bool updated = false;
-        for (const File &file : files) {
-            if (!FD_ISSET(file.fd, &fdset)) {
+        bool needReload = false;
+        for (std::vector<File>::iterator it = files.begin(); it != files.end();) {
+            if (!FD_ISSET(it->fd, &fdset)) {
+                it++;
                 continue;
             }
             updated = true;
-            if (s_verbose) printf("%s got updated: ", file.filename.c_str());
+            if (s_verbose) printf("%s got updated: ", it->filename().c_str());
 
-            if (!handleKey(file.fd)) {
-                puts("Unable to handle key, resetting state");
+            bool removed = false;
+            if (!handleKey(it->fd)) {
+                if (errno == ENODEV) {
+                    removed = true;
+                    if (s_verbose) printf("\n%s gone, removing", it->filename().c_str());
+                }
+                if (s_verbose) printf("\nUnable to handle key, resetting state");
                 // Reset pressed keys in case of an error
                 memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
             }
             if (s_verbose) puts("");
+
+            if (removed) {
+                it = files.erase(it);
+            } else {
+                it++;
+            }
         }
 
         if (updated) {
@@ -378,18 +414,43 @@ int main(int argc, char *argv[])
                     }
                 }
                 fflush(stdout);
-
             }
         }
 
-
         if (FD_ISSET(udevConnection.udevSocketFd, &fdset)) {
-            if (udevConnection.update()) {
-                puts("Udev updated, resetting pressed keys and reopening keyboard connections");
-                // Reset pressed keys if the keyboard numbers etc. change
-                memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
-                files = openKeyboards(udevConnection.keyboardPaths);
+            std::string updatedPath;
+            const UdevConnection::UpdateResult result = udevConnection.update(&updatedPath);
+            switch(result) {
+            case UdevConnection::KeyboardAdded: {
+                File file(updatedPath, true);
+                if (!file.isOpen()) {
+                    break;
+                }
+                if (s_verbose) printf("%s added\n", updatedPath.c_str());
+                files.push_back(std::move(file));
+                break;
             }
+            case UdevConnection::KeyboardRemoved:
+                for (std::vector<File>::iterator it = files.begin(); it != files.end(); it++) {
+                    if (it->filename() == updatedPath) {
+                        if (s_verbose) printf("%s removed, removing\n", it->filename().c_str());
+                        // Assume there's just one? Neh.
+                        it = files.erase(it);
+                        break;
+                    }
+                }
+                break;
+            case UdevConnection::NoUpdate:
+            default:
+                break;
+            }
+
+            needReload = true;
+        }
+
+        if (needReload) {
+            // Reset pressed keys if the keyboard numbers etc. change
+            memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
         }
     }
     puts("\nGoodbye");
