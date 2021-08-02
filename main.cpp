@@ -94,6 +94,11 @@ private:
 
 static bool s_pressedKeys[KEY_CNT];
 
+static void resetPressedKeys()
+{
+    memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
+}
+
 static bool handleKey(const int fd)
 {
     while (true) {
@@ -114,6 +119,10 @@ static bool handleKey(const int fd)
             if (s_verbose) printf("Wrong event type %d (%d: %d) ", iev.type, iev.code, iev.value);
             // Why doesn't it work when I try continue instead here? I feel dumb
             return true;
+        }
+        if (iev.code >= KEY_CNT) {
+            printf("Invalid key %d\n", iev.code);
+            return false;
         }
         s_pressedKeys[iev.code] = iev.value;
         if (s_verbose) printf("key %d has state %d ", iev.code, iev.value);
@@ -306,7 +315,8 @@ int main(int argc, char *argv[])
     signal(SIGINT, &signalHandler);
     signal(SIGTERM, &signalHandler);
     signal(SIGQUIT, &signalHandler);
-    signal(SIGHUP, [](int){}); // Ignore
+
+    signal(SIGHUP, SIG_IGN);
     signal(SIGCHLD, SIG_IGN);
 
     UdevConnection udevConnection;
@@ -357,7 +367,7 @@ int main(int argc, char *argv[])
 
         if (events == 0) {
             // If there was a timeout, assume we might have missed some events and reset state
-            memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
+            resetPressedKeys();
             continue;
         }
         if (s_verbose) printf("Handling %d events\n", events);
@@ -380,7 +390,7 @@ int main(int argc, char *argv[])
                 }
                 if (s_verbose) printf("\nUnable to handle key, resetting state");
                 // Reset pressed keys in case of an error
-                memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
+                resetPressedKeys();
             }
             if (s_verbose) puts("");
 
@@ -457,7 +467,7 @@ int main(int argc, char *argv[])
 
         if (needReload) {
             // Reset pressed keys if the keyboard numbers etc. change
-            memset(s_pressedKeys, 0, KEY_CNT * sizeof(uint8_t));
+            resetPressedKeys();
         }
     }
     puts("\nGoodbye");
