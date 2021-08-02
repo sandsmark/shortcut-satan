@@ -272,8 +272,15 @@ int main(int argc, char *argv[])
             s_verbose = true;
             continue;
         }
-        printf("Usage: %s [--verbose|-v|-vv|--very-verbose|-p|--printkeys]\n", argv[0]);
-        exit(0);
+        if (arg == "--list-keys") {
+            puts("Available keys:");
+            for (const std::pair<const std::string, uint16_t> &key : key_conversion_table) {
+                printf("  %s\n", key.first.c_str());
+            }
+            exit(0);
+        }
+        printf("Usage: %s [--verbose|-v|-vv|--very-verbose|--list-keys|-p|--printkeys]\n", argv[0]);
+        exit(EINVAL);
     }
 
     File pidfile("/tmp/shortcut-satan.lock", false, O_WRONLY | O_CREAT | O_CREAT);
