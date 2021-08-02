@@ -24,6 +24,9 @@ extern "C" {
 #include <termios.h>
 }
 
+static bool s_pressedKeys[KEY_CNT];
+static bool s_usedKeys[KEY_CNT];
+
 struct File
 {
     File (const std::string &filename, bool keyboard, const int flags = O_RDONLY | O_NONBLOCK | O_CLOEXEC) : m_filename(filename) {
@@ -92,8 +95,6 @@ private:
     std::string m_filename;
 };
 
-static bool s_pressedKeys[KEY_CNT];
-
 static void resetPressedKeys()
 {
     memset(s_pressedKeys, 0, KEY_CNT * sizeof(bool));
@@ -120,12 +121,13 @@ static bool handleKey(const int fd)
             // Why doesn't it work when I try continue instead here? I feel dumb
             return true;
         }
+        if (s_veryVerbose) printf("Correct event type %d (%d: %d) ", iev.type, iev.code, iev.value);
         if (iev.code >= KEY_CNT) {
             printf("Invalid key %d\n", iev.code);
             return false;
         }
         s_pressedKeys[iev.code] = iev.value;
-        if (s_verbose) printf("key %d has state %d ", iev.code, iev.value);
+        if (s_verbose) printf("key %s has state %d\n", getKeyName(iev.code).c_str(), iev.value);
     }
     return true;
 }
@@ -227,6 +229,7 @@ static Shortcut parseShortcut(const std::string &line)
             return {};
         }
         shortcut.keys.push_back(keyCode);
+        s_usedKeys[keyCode] = true;
     }
     return shortcut;
 }
@@ -340,6 +343,7 @@ int main(int argc, char *argv[])
     }
 
     s_running = true;
+    bool anyActiveShortcuts = false;
     puts("Running");
 
     fd_set fdset;
@@ -380,7 +384,7 @@ int main(int argc, char *argv[])
                 continue;
             }
             updated = true;
-            if (s_verbose) printf("%s got updated: ", it->filename().c_str());
+            if (s_verbose) printf("%s got updated\n", it->filename().c_str());
 
             bool removed = false;
             if (!handleKey(it->fd)) {
@@ -388,7 +392,7 @@ int main(int argc, char *argv[])
                     removed = true;
                     if (s_verbose) printf("\n%s gone, removing", it->filename().c_str());
                 }
-                if (s_verbose) printf("\nUnable to handle key, resetting state");
+                if (s_verbose) puts("\nUnable to handle key, resetting state");
                 // Reset pressed keys in case of an error
                 resetPressedKeys();
             }
@@ -401,7 +405,39 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (updated) {
+        // Tiny performance improvement, if the key isn't used in any shortcut
+        // don't loop through all shortcuts
+        bool needToCheckShortcuts = anyActiveShortcuts;// In case there are active shortcuts they need to be updated in case they are inactive
+        if (!anyActiveShortcuts && updated) {
+            for (size_t i = 0; i<KEY_CNT; i++) {
+                if (!s_usedKeys[i]) {
+                    continue;
+                }
+                if (!s_pressedKeys[i]) {
+                    continue;
+                }
+
+                needToCheckShortcuts = true;
+                break;
+            }
+        }
+
+        if (s_veryVerbose) {
+            if (anyActiveShortcuts) {
+                puts("Has active shortcuts");
+            } else {
+                puts("No active shortcuts");
+            }
+
+            if (!needToCheckShortcuts) {
+                puts("Interesting keys pressed");
+            } else {
+                puts("No interesting keys pressed");
+            }
+        }
+        if (needToCheckShortcuts) {
+            if (s_veryVerbose) puts("Checking shortcuts");
+            anyActiveShortcuts = false;
             for (Shortcut &shortcut : shortcuts) {
                 bool activated = true;
                 for (const uint16_t code : shortcut.keys) {
@@ -416,9 +452,11 @@ int main(int argc, char *argv[])
                     continue;
                 }
                 if (shortcut.active) {
+                    anyActiveShortcuts = true;
                     continue;
                 }
                 shortcut.active = true;
+                anyActiveShortcuts = true;
                 if (s_verbose) printf("Activated '%s'\n", shortcut.command.c_str());
                 launch(shortcut.command);
             }
