@@ -6,9 +6,9 @@ extern "C" {
 
 #include "utils.h"
 
-#include <unordered_map>
+#include <map>
 
-static const std::unordered_map<std::string, uint16_t> key_conversion_table =
+static const std::map<std::string, uint16_t> key_conversion_table =
 {
     {"ESC", KEY_ESC},
     {"1", KEY_1},
@@ -510,9 +510,9 @@ static const std::unordered_map<std::string, uint16_t> key_conversion_table =
 };
 
 template<typename T, typename V>
-static std::unordered_map<T, V> reverseMapping(const std::unordered_map<V, T> &mapping)
+static std::map<T, V> reverseMapping(const std::map<V, T> &mapping)
 {
-    std::unordered_map<T, V> ret;
+    std::map<T, V> ret;
     for (const std::pair<const V, T> &entry : mapping) {
         ret[entry.second] = entry.first;
     }
@@ -522,9 +522,9 @@ static std::unordered_map<T, V> reverseMapping(const std::unordered_map<V, T> &m
 
 // Don't need to account for invalid enums
 template<typename T>
-static std::string lookupString(const T val, const std::unordered_map<T, std::string> &map)
+static std::string lookupString(const T val, const std::map<T, std::string> &map)
 {
-    typename std::unordered_map<T, std::string>::const_iterator it = map.find(val);
+    typename std::map<T, std::string>::const_iterator it = map.find(val);
     if (it == map.end()) {
         return "[UNKNOWN: " + std::to_string(val) + "]";
     }
@@ -533,7 +533,7 @@ static std::string lookupString(const T val, const std::unordered_map<T, std::st
 
 static int getKeyCode(const std::string &input)
 {
-    std::unordered_map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(std_sux::uppercase(input));
+    std::map<std::string, uint16_t>::const_iterator it = key_conversion_table.find(std_sux::uppercase(input));
     if (it != key_conversion_table.end()) {
         return it->second;
     }
